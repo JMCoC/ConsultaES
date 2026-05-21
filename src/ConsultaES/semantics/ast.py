@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Column:
-    table: str
+    table: str | None
     name: str
     agg: str | None = None  
 
