@@ -198,6 +198,13 @@ def test_agg_filtro_agrupacion(rig):
     assert ast.group_by[0].name == "ciudad"
 
 
+def test_agrupados_y_ordenados(rig):
+    """ORDER BY + GROUP BY combined"""
+    ast = _interpret("cuenta de clientes agrupados por ciudad ordenados por ciudad", rig)
+    assert len(ast.group_by) == 1
+    assert len(ast.order_by) == 1
+
+
 def test_orden_con_filtro(rig):
     """'muéstrame los pedidos con total mayor que 100 ordenados por total'"""
     ast = _interpret(

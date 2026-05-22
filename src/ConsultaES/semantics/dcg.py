@@ -78,7 +78,7 @@ def _eval_leaf(item: LexicalItem) -> dict:
         return {"tipo": "valor", "valor": _to_number(lemma)}
     if cat == "CADENA":
         return {"tipo": "valor", "valor": _strip_quotes(lemma)}
-    if cat == "VALOR_CIUDAD":
+    if cat in ("VALOR_CIUDAD", "VALOR_NOMBRE", "VALOR_CATEGORIA", "VALOR_TIPO"):
         return {"tipo": "valor", "valor": lemma, "bindings": bindings}
     if cat == "OP_COMP":
         return {"tipo": "op", "op": _normalize_op(lemma)}
@@ -122,11 +122,28 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
 
     # ----- Pregunta -----
     if label == "Pregunta":
+        # Pregunta -> Nucleo | Nucleo Cola
+        nucleo_ast = child_attrs[0] 
+        if len(child_attrs) == 2:
+            cola = child_attrs[1]  
+            if cola.get("filtros"):
+                nucleo_ast.where = cola["filtros"]
+            if cola.get("agrupacion"):
+                nucleo_ast.group_by = [
+                    Column(table=None, name=cola["agrupacion"]["columna"])
+                ]
+            if cola.get("orden"):
+                orden = cola["orden"]
+                direction = orden.get("dir", "ASC")
+                nucleo_ast.order_by = [
+                    (Column(table=None, name=orden["columna"]), direction)
+                ]
+        return nucleo_ast
+
+    # ----- Nucleo -----
+    if label == "Nucleo":
         agg_attr = None
         sn_attr = None
-        filtros_attr = None
-        agrupacion_attr = None
-        orden_attr = None
 
         for ca in child_attrs:
             if isinstance(ca, dict):
@@ -135,21 +152,11 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
                     agg_attr = ca
                 elif tipo == "tabla":
                     sn_attr = ca
-                elif tipo == "modo":
-                    pass  
-                elif tipo == "prep":
-                    pass  
-                elif tipo == "agrupacion":
-                    agrupacion_attr = ca
-                elif tipo == "orden":
-                    orden_attr = ca
-            elif isinstance(ca, SQLAst):
-                pass  
-            elif isinstance(ca, list):
-                filtros_attr = ca
+                elif tipo in ("modo", "prep", "det"):
+                    pass
 
         if sn_attr is None:
-            raise ValueError("Pregunta sin SN (tabla)")
+            raise ValueError("Nucleo sin SN (tabla)")
 
         tabla = sn_attr["tabla"]
 
@@ -165,24 +172,25 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
 
         ast = SQLAst(select=select, tables=[tabla])
 
-        if filtros_attr:
-            ast.where = filtros_attr
-
-        if agrupacion_attr:
-            ast.group_by = [
-                Column(table=None, name=agrupacion_attr["columna"])
-            ]
-
-        if orden_attr:
-            direction = orden_attr.get("dir", "ASC")
-            ast.order_by = [
-                (Column(table=None, name=orden_attr["columna"]), direction)
-            ]
-
+        # LIMIT from SN
         if sn_attr.get("limit") is not None:
             ast.limit = sn_attr["limit"]
 
         return ast
+
+    # ----- Cola -----
+    if label == "Cola":
+        result: dict = {}
+        for ca in child_attrs:
+            if isinstance(ca, dict):
+                tipo = ca.get("tipo")
+                if tipo == "agrupacion":
+                    result["agrupacion"] = ca
+                elif tipo == "orden":
+                    result["orden"] = ca
+            elif isinstance(ca, list):
+                result["filtros"] = ca
+        return result
 
     # ----- Interrog / Imperativo -----
     if label in ("Interrog", "Imperativo"):

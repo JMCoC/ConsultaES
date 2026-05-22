@@ -6,6 +6,7 @@ class Lexicon:
     tables: dict[str, list[str]] = field(default_factory=dict)
     fks: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
     values: dict[str, set[str]] = field(default_factory=dict)
+    values_by_table: dict[tuple[str, str], set[str]] = field(default_factory=dict)
 
     def columns_of(self, table: str) -> list[str]:
         return self.tables[table]
@@ -51,8 +52,7 @@ def build_lexicon(schema_path: str, db_path: str = "data/tienda.db") -> Lexicon:
     tables, fks = parse_schema(schema_path)
     values = load_values(db_path, tables)
     vbt = values_by_table(db_path, tables)
-    lex = Lexicon(tables=tables, fks=fks, values=values)
-    lex.values_by_table = vbt 
+    lex = Lexicon(tables=tables, fks=fks, values=values, values_by_table=vbt)
     return lex
 
 
@@ -114,7 +114,7 @@ def categorize(tokens, lex: Lexicon) -> list[list[LexicalItem]]:
                     LexicalItem("N_COLUMNA", low, bindings=list(col_idx[low]))
                 )
 
-            vbt = getattr(lex, "values_by_table", {})
+            vbt = lex.values_by_table
             for (tname, cname), vset in vbt.items():
                 if cname not in _VALUE_COL_CATEGORY:
                     continue
