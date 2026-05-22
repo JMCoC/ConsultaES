@@ -1,9 +1,11 @@
+"""DCG attribute evaluation — walks a ParseTree bottom-up and produces a SQLAst."""
 
 from __future__ import annotations
 
 from consultaES.lexicon import LexicalItem
 from consultaES.parser.tree import ParseTree
 from consultaES.semantics.ast import Column, Condition, SQLAst
+
 
 
 _OP_MAP: dict[str, str] = {
@@ -22,6 +24,18 @@ _OP_MAP: dict[str, str] = {
 }
 
 
+_AGG_MAP: dict[str, str] = {
+    "total": "SUM",
+    "suma": "SUM",
+    "promedio": "AVG",
+    "media": "AVG",
+    "cuenta": "COUNT",
+    "cantidad": "COUNT",
+    "máximo": "MAX",
+    "mínimo": "MIN",
+}
+
+
 def _normalize_op(lemma: str) -> str:
     low = lemma.strip().lower()
     if low in _OP_MAP:
@@ -30,6 +44,7 @@ def _normalize_op(lemma: str) -> str:
 
 
 def _to_number(s: str):
+    """Intenta convertir a int, luego float; devuelve str si falla."""
     try:
         return int(s)
     except ValueError:
@@ -44,6 +59,8 @@ def _strip_quotes(s: str) -> str:
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
         return s[1:-1]
     return s
+
+
 
 def _eval_leaf(item: LexicalItem) -> dict:
     cat = item.category
@@ -72,53 +89,140 @@ def _eval_leaf(item: LexicalItem) -> dict:
     if cat == "CONECTOR":
         conector = "AND" if lemma.lower() == "y" else "OR"
         return {"tipo": "conector", "conector": conector}
+    if cat == "AGG":
+        sql_agg = _AGG_MAP.get(lemma.lower(), "COUNT")
+        return {"tipo": "agg", "agg": sql_agg}
+    if cat == "AGR_MARKER":
+        return {"tipo": "agr_marker"}
+    if cat == "ORD_MARKER":
+        return {"tipo": "ord_marker"}
+    if cat == "DIR":
+        low = lemma.lower()
+        direction = "DESC" if low.startswith("descend") else "ASC"
+        return {"tipo": "dir", "dir": direction}
 
+    # Fallback
     return {"tipo": cat.lower(), "lemma": lemma}
 
 
+
 def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
+    """Aplica la acción semántica de una regla interna.
+
+    ``children`` es la lista original de hijos (ParseTree | LexicalItem) para
+    poder inspeccionar sus etiquetas / categorías si es necesario.
+    """
     rhs_labels = tuple(
         c.label if isinstance(c, ParseTree) else c.category for c in children
     )
 
+    # ----- S -> Pregunta -----
     if label == "S":
         return child_attrs[0]
 
-
+    # ----- Pregunta -----
     if label == "Pregunta":
-        sn = child_attrs[1]
-        tabla = sn["tabla"]
-        ast = SQLAst(
-            select=[Column(table=tabla, name="*")],
-            tables=[tabla],
-        )
-        if len(child_attrs) >= 3:
-            filtros = child_attrs[2]
-            ast.where = filtros
+        agg_attr = None
+        sn_attr = None
+        filtros_attr = None
+        agrupacion_attr = None
+        orden_attr = None
+
+        for ca in child_attrs:
+            if isinstance(ca, dict):
+                tipo = ca.get("tipo")
+                if tipo == "agregacion":
+                    agg_attr = ca
+                elif tipo == "tabla":
+                    sn_attr = ca
+                elif tipo == "modo":
+                    pass  
+                elif tipo == "prep":
+                    pass  
+                elif tipo == "agrupacion":
+                    agrupacion_attr = ca
+                elif tipo == "orden":
+                    orden_attr = ca
+            elif isinstance(ca, SQLAst):
+                pass  
+            elif isinstance(ca, list):
+                filtros_attr = ca
+
+        if sn_attr is None:
+            raise ValueError("Pregunta sin SN (tabla)")
+
+        tabla = sn_attr["tabla"]
+
+        if agg_attr:
+            agg_func = agg_attr["agg"]
+            agg_col = agg_attr.get("columna")
+            if agg_col:
+                select = [Column(table=tabla, name=agg_col, agg=agg_func)]
+            else:
+                select = [Column(table=tabla, name="*", agg=agg_func)]
+        else:
+            select = [Column(table=tabla, name="*")]
+
+        ast = SQLAst(select=select, tables=[tabla])
+
+        if filtros_attr:
+            ast.where = filtros_attr
+
+        if agrupacion_attr:
+            ast.group_by = [
+                Column(table=None, name=agrupacion_attr["columna"])
+            ]
+
+        if orden_attr:
+            direction = orden_attr.get("dir", "ASC")
+            ast.order_by = [
+                (Column(table=None, name=orden_attr["columna"]), direction)
+            ]
+
+        if sn_attr.get("limit") is not None:
+            ast.limit = sn_attr["limit"]
+
         return ast
 
+    # ----- Interrog / Imperativo -----
     if label in ("Interrog", "Imperativo"):
         return child_attrs[0]
 
+    # ----- SN -----
     if label == "SN":
         if len(child_attrs) == 1:
+            # SN -> N_TABLA
             return child_attrs[0]
-        return child_attrs[1]
+        if len(child_attrs) == 2:
+            # SN -> Det N_TABLA
+            return child_attrs[1]
+        if len(child_attrs) == 3:
+            # SN -> Det NUM N_TABLA
+            tabla_attr = child_attrs[2]
+            num_attr = child_attrs[1]
+            limit_val = num_attr.get("valor")
+            if isinstance(limit_val, (int, float)):
+                tabla_attr["limit"] = int(limit_val)
+            return tabla_attr
 
+    # ----- Det -----
     if label == "Det":
         return child_attrs[0]
 
+    # ----- Filtros -----
     if label == "Filtros":
-        filtro_cond = child_attrs[0] 
+        filtro_cond = child_attrs[0]  # Condition
         if len(child_attrs) == 1:
             return [("", filtro_cond)]
+        # Filtros -> Filtro CONECTOR Filtros
         conector_attr = child_attrs[1]
-        rest = child_attrs[2]  
+        rest = child_attrs[2]  # list of (conector, cond)
         result = [("", filtro_cond)]
         for _, cond in rest:
             result.append((conector_attr["conector"], cond))
         return result
 
+    # ----- Filtro -> PREP N_COLUMNA OP_COMP Valor -----
     if label == "Filtro":
         col_attr = child_attrs[1]
         op_attr = child_attrs[2]
@@ -130,13 +234,46 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
             value=valor,
         )
 
+    # ----- Agregacion -----
+    if label == "Agregacion":
+        agg_attr = child_attrs[0]  # AGG leaf
+        result = {"tipo": "agregacion", "agg": agg_attr["agg"]}
+        if len(child_attrs) == 3:
+            # Agregacion -> AGG PREP N_COLUMNA
+            col_attr = child_attrs[2]
+            result["columna"] = col_attr["columna"]
+        return result
+
+    # ----- Agrupacion -----
+    if label == "Agrupacion":
+        # Agrupacion -> AGR_MARKER PREP N_COLUMNA
+        col_attr = child_attrs[2]
+        return {"tipo": "agrupacion", "columna": col_attr["columna"]}
+
+    # ----- Orden -----
+    if label == "Orden":
+        # Orden -> ORD_MARKER PREP N_COLUMNA [Direccion]
+        col_attr = child_attrs[2]
+        result = {"tipo": "orden", "columna": col_attr["columna"]}
+        if len(child_attrs) == 4:
+            dir_attr = child_attrs[3]
+            result["dir"] = dir_attr["dir"]
+        return result
+
+    # ----- Direccion -----
+    if label == "Direccion":
+        return child_attrs[0]
+
+    # ----- Valor -----
     if label == "Valor":
         return child_attrs[0]
 
+    # Fallback — no debería ocurrir con la gramática actual
     return child_attrs[0] if child_attrs else {}
 
 
 def interpret(tree: ParseTree) -> SQLAst:
+    """Recorre el ParseTree en post-orden y produce un SQLAst."""
     result = _walk(tree)
     if not isinstance(result, SQLAst):
         raise ValueError(f"El nodo raíz no produjo un SQLAst: {result!r}")
@@ -144,6 +281,7 @@ def interpret(tree: ParseTree) -> SQLAst:
 
 
 def _walk(node):
+    """Recorrido post-orden: evalúa hijos, luego aplica la acción del nodo."""
     if isinstance(node, LexicalItem):
         return _eval_leaf(node)
 
