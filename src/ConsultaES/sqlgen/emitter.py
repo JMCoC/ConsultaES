@@ -1,4 +1,4 @@
-from consultaES.semantics.ast import SQLAst, Column, Condition
+from consultaES.semantics.ast import SQLAst, Column, Condition, Join
 
 
 def emit(ast: SQLAst) -> tuple[str, list]:
@@ -10,8 +10,17 @@ def emit(ast: SQLAst) -> tuple[str, list]:
     select_cols = [_col_to_str(col) for col in ast.select]
     parts.append("SELECT " + ", ".join(select_cols))
 
-    # FROM
-    parts.append("FROM " + ", ".join(ast.tables))
+    # FROM + JOINs
+    if ast.joins:
+        from_str = "FROM " + ast.tables[0]
+        for j in ast.joins:
+            from_str += (
+                f" JOIN {j.table}"
+                f" ON {_col_to_str(j.on_left)} = {_col_to_str(j.on_right)}"
+            )
+        parts.append(from_str)
+    else:
+        parts.append("FROM " + ", ".join(ast.tables))
 
     # WHERE
     if ast.where:
