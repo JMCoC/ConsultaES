@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from consultaES.disambiguator.typing import prune_by_typing
+
 
 @dataclass
 class Context:
@@ -13,3 +15,11 @@ class DisambiguationRequest:
 
 def disambiguate(trees, ctx: Context):
     raise NotImplementedError
+
+
+__all__ = [
+    "Context",
+    "DisambiguationRequest",
+    "disambiguate",
+    "prune_by_typing",
+]
