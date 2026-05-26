@@ -63,11 +63,12 @@ def emit(ast: SQLAst) -> tuple[str, list]:
 
 
 def _col_to_str(col: Column) -> str:
+    if col.agg and col.name == "*":
+        return f"{col.agg}(*)"
     base = f"{col.table}.{col.name}" if col.table else col.name
     if col.agg:
         return f"{col.agg}({base})"
     return base
-
 
 def _cond_to_str(cond: Condition) -> tuple[str, list]:
     col_str = _col_to_str(cond.col)
