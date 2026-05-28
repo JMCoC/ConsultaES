@@ -17,21 +17,13 @@ class ParseTree:
 
 
 def build_tree(earley_item, items) -> ParseTree:
-    """Build a ParseTree from a completed EarleyItem.
 
-    Terminal children are stored as input indices in `earley_item.children`
-    and resolved against `items` (a lattice: list[list[LexicalItem]]) here
-    to recover the original LexicalItem.
-    """
     node = ParseTree(earley_item.lhs)
     for (sym, child) in earley_item.children:
-        if isinstance(child, int):
-            # Scanned terminal: resolve index into the lattice.
-            # Pick the first alternative whose category matches sym.
-            alts = items[child]
-            resolved = next((a for a in alts if a.category == sym), alts[0])
+        if isinstance(child, tuple):
+            pos, alt_index = child
+            resolved = items[pos][alt_index]
             node.children.append(resolved)
         else:
-            # Completed non-terminal: recurse.
             node.children.append(build_tree(child, items))
     return node

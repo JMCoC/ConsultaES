@@ -127,7 +127,10 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
         if len(child_attrs) == 2:
             cola = child_attrs[1]  
             if cola.get("filtros"):
-                nucleo_ast.where = cola["filtros"]
+                filtros = list(cola["filtros"])
+                if nucleo_ast.where and filtros and filtros[0][0] == "":
+                    filtros[0] = ("AND", filtros[0][1])
+                nucleo_ast.where = nucleo_ast.where + filtros
             if cola.get("agrupacion"):
                 nucleo_ast.group_by = [
                     Column(table=None, name=cola["agrupacion"]["columna"])
@@ -144,6 +147,7 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
     if label == "Nucleo":
         agg_attr = None
         sn_attr = None
+        valor_attr = None
 
         for ca in child_attrs:
             if isinstance(ca, dict):
@@ -152,6 +156,8 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
                     agg_attr = ca
                 elif tipo == "tabla":
                     sn_attr = ca
+                elif tipo == "valor":
+                    valor_attr = ca
                 elif tipo in ("modo", "prep", "det"):
                     pass
 
@@ -171,6 +177,21 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
             select = [Column(table=tabla, name="*")]
 
         ast = SQLAst(select=select, tables=[tabla])
+
+        if rhs_labels == ("SN", "PREP", "Valor") and valor_attr:
+            bindings = valor_attr.get("bindings") or []
+            if bindings:
+                table, column = bindings[0]
+                ast.where = [
+                    (
+                        "",
+                        Condition(
+                            col=Column(table=table, name=column),
+                            op="=",
+                            value=valor_attr.get("valor"),
+                        ),
+                    )
+                ]
 
         # LIMIT from SN
         if sn_attr.get("limit") is not None:
