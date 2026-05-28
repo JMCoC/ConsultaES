@@ -29,6 +29,8 @@ _ORD_MARKER = {"ordenados", "ordenado", "ordenadas", "ordenada"}
 _DIR = {"ascendente", "descendente", "ascendentemente", "descendentemente"}
 
 _SINGULAR_TO_TABLE = {
+    "venta": "pedidos",
+    "ventas": "pedidos",
     "cliente": "clientes",
     "vendedor": "vendedores",
     "producto": "productos",

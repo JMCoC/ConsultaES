@@ -49,14 +49,14 @@ def earley_parse(items, grammar):
                                 changed = True
                     elif i < n:
                         # SCAN: items[i] is a list of alternatives (lattice).
-                        for alt in items[i]:
+                        for alt_index, alt in enumerate(items[i]):
                             if alt.category == sym:
                                 new = EarleyItem(
                                     item.lhs,
                                     item.rhs,
                                     item.dot + 1,
                                     item.origin,
-                                    item.children + ((sym, i),),
+                                    item.children + ((sym, (i, alt_index)),),
                                 )
                                 if new not in chart[i + 1]:
                                     chart[i + 1].add(new)

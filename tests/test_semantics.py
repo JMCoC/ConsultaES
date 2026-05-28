@@ -5,6 +5,7 @@ import pytest
 from consultaES.grammar import load_grammar
 from consultaES.lexicon import build_lexicon, categorize
 from consultaES.parser import parse
+from consultaES.parser.tree import ParseTree
 from consultaES.semantics import Column, Condition, SQLAst, interpret
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,6 +28,16 @@ def _interpret(q: str, rig) -> SQLAst:
     trees = parse(items, g)
     assert trees, f"no parse for: {q}"
     return interpret(trees[0])
+
+def _leaves(node):
+    if hasattr(node, "category"):
+        return [node]
+    if isinstance(node, ParseTree):
+        leaves = []
+        for child in node.children:
+            leaves.extend(_leaves(child))
+        return leaves
+    return []
 
 def test_cuantos_clientes(rig):
     ast = _interpret("cuántos clientes", rig)
@@ -123,3 +134,69 @@ def test_imperativo_con_filtro(rig):
     _, cond = ast.where[0]
     assert cond.op == ">"
     assert cond.value == 0
+
+def test_ventas_de_juan_conserva_calificador_como_filtro(rig):
+    lex, g = rig
+    tokens = __import__("consultaES.tokenizer", fromlist=["tokenize"]).tokenize(
+        "ventas de Juan"
+    )
+    items = categorize(tokens, lex)
+    trees = parse(items, g)
+    assert len(trees) >= 2
+
+    ast_por_binding = {}
+    for tree in trees:
+        juan = next(
+            leaf
+            for leaf in _leaves(tree)
+            if leaf.category == "VALOR_NOMBRE" and leaf.lemma.lower() == "juan"
+        )
+        ast_por_binding[tuple(juan.bindings)] = interpret(tree)
+
+    for binding in ((("clientes", "nombre"),), (("vendedores", "nombre"),)):
+        ast = ast_por_binding[binding]
+        assert ast.tables == ["pedidos"]
+        assert len(ast.where) == 1
+        conector, cond = ast.where[0]
+        assert conector == ""
+        assert cond == Condition(
+            col=Column(table=binding[0][0], name=binding[0][1]),
+            op="=",
+            value="Juan",
+        )
+
+
+def test_ventas_de_juan_con_filtro_de_cola_conserva_ambas_condiciones(rig):
+    lex, g = rig
+    tokens = __import__("consultaES.tokenizer", fromlist=["tokenize"]).tokenize(
+        "ventas de Juan con total mayor que 100"
+    )
+    items = categorize(tokens, lex)
+    trees = parse(items, g)
+    assert len(trees) >= 2
+
+    ast_por_binding = {}
+    for tree in trees:
+        juan = next(
+            leaf
+            for leaf in _leaves(tree)
+            if leaf.category == "VALOR_NOMBRE" and leaf.lemma.lower() == "juan"
+        )
+        ast_por_binding[tuple(juan.bindings)] = interpret(tree)
+
+    for binding in ((("clientes", "nombre"),), (("vendedores", "nombre"),)):
+        ast = ast_por_binding[binding]
+        assert ast.tables == ["pedidos"]
+        assert len(ast.where) == 2
+        assert ast.where[0] == (
+            "",
+            Condition(
+                col=Column(table=binding[0][0], name=binding[0][1]),
+                op="=",
+                value="Juan",
+            ),
+        )
+        assert ast.where[1] == (
+            "AND",
+            Condition(col=Column(table=None, name="total"), op=">", value=100),
+        )

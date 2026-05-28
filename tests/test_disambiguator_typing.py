@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,15 @@ def _sn_tree(table: str, leaves_after_table: list | None = None) -> ParseTree:
         children.extend(leaves_after_table)
     return ParseTree("SN", children)
 
+def _collect_leaves(node) -> list[LexicalItem]:
+    if isinstance(node, LexicalItem):
+        return [node]
+    if isinstance(node, ParseTree):
+        leaves: list[LexicalItem] = []
+        for child in node.children:
+            leaves.extend(_collect_leaves(child))
+        return leaves
+    return []
 
 def test_unambiguous_tree_passes_through(lex, grammar):
     tokens = tokenize("cuántos clientes")
@@ -85,7 +95,29 @@ def test_juan_ambiguity_keeps_fk_reachable_binding(lex):
     pruned = prune_by_typing([tree], lex)
     assert pruned == [tree]
 
+def test_ventas_de_juan_raw_ambiguity_reaches_typing_prune(lex, grammar):
+    items = categorize(tokenize("ventas de Juan"), lex)
+    trees = parse(items, grammar)
+    assert len(trees) >= 2
 
+    juan_bindings = {
+        tuple(leaf.bindings)
+        for tree in trees
+        for leaf in _collect_leaves(tree)
+        if leaf.category == "VALOR_NOMBRE" and leaf.lemma.lower() == "juan"
+    }
+    assert (("clientes", "nombre"),) in juan_bindings
+    assert (("vendedores", "nombre"),) in juan_bindings
+
+    impossible = deepcopy(trees[0])
+    for leaf in _collect_leaves(impossible):
+        if leaf.category == "VALOR_NOMBRE" and leaf.lemma.lower() == "juan":
+            leaf.bindings = [("tabla_inventada", "nombre")]
+            break
+
+    pruned = prune_by_typing(trees + [impossible], lex)
+    assert impossible not in pruned
+    assert all(tree in pruned for tree in trees)
 
 def test_all_incompatible_returns_empty():
     iso_lex = Lexicon(
