@@ -6,7 +6,8 @@ import pytest
 from consultaES.grammar import load_grammar
 from consultaES.lexicon import build_lexicon, categorize
 from consultaES.parser import parse
-from consultaES.semantics import interpret
+from consultaES.parser.tree import ParseTree
+from consultaES.semantics import interpret, prepare_sql_ast
 from consultaES.sqlgen import generate
 from consultaES.tokenizer import tokenize
 
@@ -35,10 +36,46 @@ def _sql(query: str, rig) -> str:
     items = categorize(tokens, lex)
     trees = parse(items, g)
     assert trees, f"no parse for: {query}"
-    ast = interpret(trees[0])
+    ast = prepare_sql_ast(interpret(trees[0]), lex)
     sql, _params = generate(ast, db=None, execute=False)
     return norm(sql)
 
+def _leaves(node):
+    if hasattr(node, "category"):
+        return [node]
+    if isinstance(node, ParseTree):
+        leaves = []
+        for child in node.children:
+            leaves.extend(_leaves(child))
+        return leaves
+    return []
+
+
+def _tree_with_value_binding(query: str, binding: tuple[str, str], rig):
+    lex, g = rig
+    tokens = tokenize(query)
+    items = categorize(tokens, lex)
+    trees = parse(items, g)
+    assert trees, f"no parse for: {query}"
+    for tree in trees:
+        for leaf in _leaves(tree):
+            if leaf.category.startswith("VALOR_") and binding in leaf.bindings:
+                return tree
+    raise AssertionError(f"no tree for {query!r} with binding {binding!r}")
+
+
+def test_ventas_de_juan_cliente_genera_join_y_ejecuta(rig):
+    tree = _tree_with_value_binding("ventas de Juan", ("clientes", "nombre"), rig)
+    lex, _g = rig
+    ast = prepare_sql_ast(interpret(tree), lex)
+
+    sql, rows = generate(ast, db=str(DB_PATH), execute=True)
+
+    normalized = norm(sql)
+    assert "from pedidos join clientes" in normalized
+    assert "pedidos.id_cliente = clientes.id" in normalized
+    assert "where clientes.nombre = ?" in normalized
+    assert rows
 
 # =====================================================================
 # Simple SELECT (4 consultas)
