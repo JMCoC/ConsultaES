@@ -13,11 +13,7 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "data" / "schema.sql"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "tienda.db"
 
 def _fake_items(pairs):
-    """Return a lattice of minimal LexicalItem-compatible objects.
-
-    Each (category, lemma) pair becomes a single-alternative position: [[item]].
-    """
-    return [[LexicalItem(category=c, lemma=l, bindings=[])] for c, l in pairs]
+    return [[LexicalItem(category=c, lemma=lemma, bindings=[])] for c, lemma in pairs]
 
 
 def test_parse_simple_accepting():

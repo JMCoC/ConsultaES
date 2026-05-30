@@ -7,7 +7,7 @@ import pytest
 from consultaES.grammar import load_grammar
 from consultaES.lexicon import build_lexicon, categorize
 from consultaES.parser import parse
-from consultaES.semantics import Column, Condition, SQLAst, interpret
+from consultaES.semantics import SQLAst, interpret
 from consultaES.tokenizer import tokenize
 
 ROOT = Path(__file__).resolve().parent.parent

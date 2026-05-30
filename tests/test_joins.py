@@ -1,5 +1,4 @@
 """Tests para resolución automática de JOINs por FK graph."""
-import pytest
 from consultaES.semantics.ast import SQLAst, Column, Condition, Join
 from consultaES.semantics.joins import resolve_joins
 from consultaES.sqlgen.emitter import emit

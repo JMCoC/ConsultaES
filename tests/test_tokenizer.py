@@ -1,4 +1,4 @@
-from consultaES.tokenizer import tokenize, Token
+from consultaES.tokenizer import tokenize
 
 
 def kinds(texto):
