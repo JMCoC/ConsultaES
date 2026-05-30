@@ -1,4 +1,4 @@
-from consultaES.semantics.ast import SQLAst, Column, Condition, Join
+from consultaES.semantics.ast import SQLAst, Column, Condition
 
 
 def emit(ast: SQLAst) -> tuple[str, list]:
@@ -69,6 +69,7 @@ def _col_to_str(col: Column) -> str:
     if col.agg:
         return f"{col.agg}({base})"
     return base
+
 
 def _cond_to_str(cond: Condition) -> tuple[str, list]:
     col_str = _col_to_str(cond.col)

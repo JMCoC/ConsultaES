@@ -1,4 +1,3 @@
-import pytest
 from consultaES.semantics.ast import Column, Condition, SQLAst
 
 class TestColumn:

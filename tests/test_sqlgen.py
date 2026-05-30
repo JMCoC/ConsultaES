@@ -1,4 +1,3 @@
-import pytest
 from consultaES.semantics.ast import SQLAst, Column, Condition
 from consultaES.sqlgen import generate
 from consultaES.sqlgen.emitter import emit
