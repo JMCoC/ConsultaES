@@ -49,6 +49,20 @@ def _sn(table: str) -> ParseTree:
     n_tabla = LexicalItem("N_TABLA", table, bindings=[(table, None)])
     return ParseTree("SN", [n_tabla])
 
+def _leaves(node) -> list[LexicalItem]:
+    if isinstance(node, LexicalItem):
+        return [node]
+    if isinstance(node, ParseTree):
+        leaves: list[LexicalItem] = []
+        for child in node.children:
+            leaves.extend(_leaves(child))
+        return leaves
+    return []
+
+
+def _has_binding(tree: ParseTree, binding: tuple[str, str]) -> bool:
+    return any(binding in leaf.bindings for leaf in _leaves(tree))
+
 def test_schema_existence_all_valid(lex):
     sn = _sn("clientes")
     juan = LexicalItem("VALOR_NOMBRE", "Juan", bindings=[("clientes", "nombre")])
@@ -237,3 +251,24 @@ def test_disambiguate_real_pipeline(lex, grammar):
     assert trees
     out = disambiguate(trees, lex, db_path=str(DB_PATH))
     assert isinstance(out, ParseTree)
+
+@pytest.mark.parametrize(
+    "query, expected_binding",
+    [
+        ("ventas de Carlos", ("vendedores", "nombre")),
+        ("ventas de Andrés", ("vendedores", "nombre")),
+        ("ventas de Camila", ("vendedores", "nombre")),
+        ("ventas de Natalia", ("vendedores", "nombre")),
+    ],
+)
+def test_disambiguate_real_ambiguous_names_by_layer2(query, expected_binding, lex, grammar):
+    """Capa 2 debe resolver casos reales cuando una lectura tiene más soporte en datos."""
+    tokens = tokenize(query)
+    items = categorize(tokens, lex)
+    trees = parse(items, grammar)
+    assert len(trees) > 1
+
+    out = disambiguate(trees, lex, Context(), db_path=str(DB_PATH))
+
+    assert isinstance(out, ParseTree)
+    assert _has_binding(out, expected_binding)

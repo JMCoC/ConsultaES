@@ -246,6 +246,38 @@ def _rule_zero_rows(tree: ParseTree, lex: Lexicon, db_path: str | None) -> int:
     except Exception:
         return 0
 
+def _rule_result_support(tree: ParseTree, lex: Lexicon, db_path: str | None) -> int:
+    """+2 si la lectura genera una cantidad recurrente de filas reales.
+
+    Extiende la señal de ejecución usada por la regla de 0 filas: una rama
+    no solo debe ser no vacía, sino tener respaldo claro en el dominio. Esto
+    permite resolver ambigüedades como ``ventas de Carlos`` cuando una lectura
+    está mucho más respaldada por pedidos reales y la otra queda como caso
+    escaso. El umbral evita romper empates genuinos que deben ir a Capa 3.
+    """
+    if db_path is None:
+        return 0
+    try:
+        row_count = _count_result_rows(tree, lex, db_path)
+        return 2 if row_count >= 8 else 0
+    except Exception:
+        return 0
+
+
+def _count_result_rows(tree: ParseTree, lex: Lexicon, db_path: str) -> int:
+    from consultaES.semantics import interpret, resolve_joins
+    from consultaES.sqlgen.emitter import emit
+
+    ast = resolve_joins(interpret(tree), lex)
+    sql, params = emit(ast)
+    wrapped = f"SELECT COUNT(*) FROM ({sql}) AS _sub"
+    con = sqlite3.connect(db_path)
+    try:
+        cur = con.execute(wrapped, params)
+        (count,) = cur.fetchone()
+        return int(count)
+    finally:
+        con.close()
 
 def score(
     tree: ParseTree,
@@ -264,6 +296,7 @@ def score(
     total += _rule_right_attachment(tree)
     total += _rule_value_frequency(tree, lex, db_path)
     total += _rule_zero_rows(tree, lex, db_path)
+    total += _rule_result_support(tree, lex, db_path)
     return total
 
 
