@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from consultaES.errors import Error
 from consultaES.disambiguator.dialog import (
     context_bonus,
     paraphrase,
@@ -14,6 +15,7 @@ from consultaES.parser.tree import ParseTree
 
 _DECISIVE_MARGIN = 2
 
+
 @dataclass
 class Context:
     bindings: dict = field(default_factory=dict)
@@ -21,7 +23,6 @@ class Context:
 
 @dataclass
 class DisambiguationOption:
-
     tree: ParseTree
     paraphrase: str
     score: int
@@ -59,12 +60,10 @@ def disambiguate(
     if len(pruned) == 1:
         return pruned[0]
 
-    # Capa 2 + bonus de contexto (memoria de elecciones previas).
     scored = [
         (t, score(t, ctx, lex, db_path=db_path) + context_bonus(t, ctx))
         for t in pruned
     ]
-    # Mayor puntaje primero; ties resueltos por orden del parser.
     scored.sort(key=lambda ts: -ts[1])
 
     top_tree, top_score = scored[0]
@@ -85,12 +84,40 @@ def disambiguate(
     return DisambiguationRequest(options=options)
 
 
+def disambiguate_or_error(
+    trees: list[ParseTree],
+    lex: Lexicon,
+    ctx: Context | None = None,
+    db_path: str | None = "data/tienda.db",
+):
+    if not trees:
+        return Error(
+            kind="semántico",
+            pos=0,
+            message="No hay árboles de análisis para validar semánticamente.",
+            suggestions=[],
+        )
+    result = disambiguate(trees, lex, ctx, db_path=db_path)
+    if result is None:
+        return Error(
+            kind="semántico",
+            pos=0,
+            message=(
+                "La unificación semántica descartó todas las ramas por "
+                "incompatibilidad de tipos con el esquema."
+            ),
+            suggestions=["Revisa que columnas y valores pertenezcan a tablas relacionadas."],
+        )
+    return result
+
+
 __all__ = [
     "Context",
     "DisambiguationOption",
     "DisambiguationRequest",
     "context_bonus",
     "disambiguate",
+    "disambiguate_or_error",
     "paraphrase",
     "prune_by_typing",
     "record_choice",

@@ -1,7 +1,7 @@
 from consultaES.lexicon import Lexicon
 
 from .ast import Column, Condition, Join, SQLAst
-from .dcg import interpret
+from .dcg import interpret, interpret_or_error
 from .joins import resolve_joins
 
 
@@ -16,6 +16,7 @@ __all__ = [
     "Join",
     "SQLAst",
     "interpret",
+    "interpret_or_error",
     "prepare_sql_ast",
     "resolve_joins",
 ]

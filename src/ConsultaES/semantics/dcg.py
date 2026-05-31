@@ -1,11 +1,9 @@
-"""DCG attribute evaluation — walks a ParseTree bottom-up and produces a SQLAst."""
-
 from __future__ import annotations
 
 from consultaES.lexicon import LexicalItem
+from consultaES.errors import Error
 from consultaES.parser.tree import ParseTree
 from consultaES.semantics.ast import Column, Condition, SQLAst
-
 
 
 _OP_MAP: dict[str, str] = {
@@ -61,7 +59,6 @@ def _strip_quotes(s: str) -> str:
     return s
 
 
-
 def _eval_leaf(item: LexicalItem) -> dict:
     cat = item.category
     lemma = item.lemma
@@ -101,9 +98,7 @@ def _eval_leaf(item: LexicalItem) -> dict:
         direction = "DESC" if low.startswith("descend") else "ASC"
         return {"tipo": "dir", "dir": direction}
 
-    # Fallback
     return {"tipo": cat.lower(), "lemma": lemma}
-
 
 
 def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
@@ -125,7 +120,7 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
         # Pregunta -> Nucleo | Nucleo Cola
         nucleo_ast = child_attrs[0] 
         if len(child_attrs) == 2:
-            cola = child_attrs[1]  
+            cola = child_attrs[1] 
             if cola.get("filtros"):
                 filtros = list(cola["filtros"])
                 if nucleo_ast.where and filtros and filtros[0][0] == "":
@@ -307,6 +302,18 @@ def interpret(tree: ParseTree) -> SQLAst:
     if not isinstance(result, SQLAst):
         raise ValueError(f"El nodo raíz no produjo un SQLAst: {result!r}")
     return result
+
+
+def interpret_or_error(tree: ParseTree) -> SQLAst | Error:
+    try:
+        return interpret(tree)
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        return Error(
+            kind="semántico",
+            pos=0,
+            message=f"No se pudo construir el SQLAst por incompatibilidad semántica: {exc}",
+            suggestions=["Revisa la tabla, columna o valor usado en la consulta."],
+        )
 
 
 def _walk(node):
