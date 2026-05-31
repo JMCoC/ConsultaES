@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from consultaES.errors import Error
+
 
 @dataclass
 class Lexicon:
@@ -48,6 +50,67 @@ _VALUE_COL_CATEGORY = {
 _PASSTHROUGH = {"NUM", "CADENA", "FECHA", "OP_COMP", "CONECTOR", "PUNT", "ERROR"}
 
 
+def levenshtein(a: str, b: str) -> int:
+    a = a.lower()
+    b = b.lower()
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        cur = [i]
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost))
+        prev = cur
+    return prev[-1]
+
+
+def _vocabulario(lex: Lexicon) -> set[str]:
+    vocab = set(_INTERROG | _IMPERATIVO | _AGG | _PREP | _DET | _AGR_MARKER | _ORD_MARKER | _DIR)
+    vocab.update(_SINGULAR_TO_TABLE)
+    vocab.update(lex.tables)
+    for cols in lex.tables.values():
+        vocab.update(cols)
+    for values in lex.values.values():
+        vocab.update(str(value).lower() for value in values)
+    return vocab
+
+
+def suggest(word: str, lex: Lexicon, k: int = 3) -> list[str]:
+    vocab = sorted(_vocabulario(lex))
+    return sorted(vocab, key=lambda candidate: (levenshtein(word, candidate), candidate))[:k]
+
+
+def validate_lexical_items(tokens, lex: Lexicon) -> Error | None:
+    for tok in tokens:
+        if tok.kind == "ERROR":
+            return Error(
+                kind="léxico",
+                pos=tok.start,
+                message=f"Token no reconocido '{tok.value}' en la posición {tok.start}.",
+                suggestions=suggest(tok.value, lex, k=1),
+            )
+        if tok.kind != "PALABRA":
+            continue
+        low = tok.value.lower()
+        if low not in _vocabulario(lex):
+            return Error(
+                kind="léxico",
+                pos=tok.start,
+                message=(
+                    f"No reconozco '{tok.value}' en la posición {tok.start}. "
+                    "Revisa la palabra o usa un término del esquema."
+                ),
+                suggestions=suggest(tok.value, lex),
+            )
+    return None
+
+
 def build_lexicon(schema_path: str, db_path: str = "data/tienda.db") -> Lexicon:
     from .loader import parse_schema, load_values, values_by_table
 
@@ -59,7 +122,6 @@ def build_lexicon(schema_path: str, db_path: str = "data/tienda.db") -> Lexicon:
 
 
 def _column_index(lex: Lexicon) -> dict[str, list[tuple[str, str]]]:
-    """Column name -> list of (table, column) pairs where it appears."""
     idx: dict[str, list[tuple[str, str]]] = {}
     for t, cols in lex.tables.items():
         for c in cols:
@@ -68,7 +130,6 @@ def _column_index(lex: Lexicon) -> dict[str, list[tuple[str, str]]]:
 
 
 def categorize(tokens, lex: Lexicon) -> list[list[LexicalItem]]:
-    """Return a lattice: one position per input token, each holding all interpretations."""
     lattice: list[list[LexicalItem]] = []
     col_idx = _column_index(lex)
 

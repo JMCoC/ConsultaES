@@ -1,7 +1,10 @@
 from pathlib import Path
 
-from consultaES.disambiguator import Context, DisambiguationRequest
+from consultaES.disambiguator import Context, DisambiguationOption, DisambiguationRequest
+from consultaES.errors import Error
 from consultaES.parser.tree import ParseTree
+from consultaES.lexicon import LexicalItem
+from consultaES.ui import app
 from consultaES.ui.app import ejecutar_consulta, resolver_consulta_con_arbol
 
 
@@ -59,3 +62,42 @@ def test_resolver_consulta_con_arbol_registra_eleccion_y_continua_pipeline():
     assert ctx.bindings.get("Juan") == ("clientes", "nombre")
     assert "JOIN clientes" in resultado.sql
     assert resultado.rows
+
+
+def test_render_desambiguacion_guarda_error_sin_marcarlo_como_resultado(monkeypatch):
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {}
+
+        def radio(self, _question, *, options, format_func):
+            format_func(next(iter(options)))
+            return 0
+
+        def button(self, _label):
+            return True
+
+        def rerun(self):
+            self.session_state["rerun"] = True
+
+    fake_st = FakeStreamlit()
+    error = Error(
+        kind="ejecución",
+        pos=None,
+        message="Error SQLite al ejecutar SQL",
+        suggestions=["SELECT * FROM tabla_inexistente"],
+    )
+    tree = ParseTree("S", [LexicalItem("N_TABLA", "tabla_inexistente")])
+    solicitud = DisambiguationRequest(
+        options=[DisambiguationOption(tree=tree, paraphrase="opción inválida", score=0)]
+    )
+
+    monkeypatch.setattr(app, "st", fake_st)
+    monkeypatch.setattr(app, "_contexto_sesion", lambda: Context())
+    monkeypatch.setattr(app, "resolver_consulta_con_arbol", lambda *_args, **_kwargs: error)
+
+    app._render_desambiguacion(solicitud)
+
+    assert fake_st.session_state["error"] == error
+    assert "resultado" not in fake_st.session_state
+    assert "solicitud" not in fake_st.session_state
+    assert fake_st.session_state["rerun"] is True
