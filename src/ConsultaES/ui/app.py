@@ -156,7 +156,7 @@ def main() -> None:
         st.session_state.pop("error", None)
         salida = ejecutar_consulta(texto, ctx)
         if isinstance(salida, Error):
-            _render_error(salida)
+            st.session_state["error"] = salida
         elif isinstance(salida, DisambiguationRequest):
             st.session_state["solicitud"] = salida
         else:
