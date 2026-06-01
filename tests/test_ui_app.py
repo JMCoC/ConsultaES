@@ -101,3 +101,51 @@ def test_render_desambiguacion_guarda_error_sin_marcarlo_como_resultado(monkeypa
     assert "resultado" not in fake_st.session_state
     assert "solicitud" not in fake_st.session_state
     assert fake_st.session_state["rerun"] is True
+
+
+def test_main_guarda_error_directo_de_consultar_y_limpia_estado(monkeypatch):
+    class FakeStreamlit:
+        def __init__(self):
+            self.session_state = {
+                "resultado": object(),
+                "solicitud": object(),
+            }
+            self.errors = []
+
+        def set_page_config(self, **_kwargs):
+            pass
+
+        def title(self, _text):
+            pass
+
+        def text_input(self, _label, key):
+            self.session_state[key] = "clientess"
+            return "clientess"
+
+        def button(self, label):
+            return label == "Consultar"
+
+        def error(self, message):
+            self.errors.append(message)
+
+        def caption(self, _text):
+            pass
+
+    fake_st = FakeStreamlit()
+    error = Error(
+        kind="léxico",
+        pos=0,
+        message="No reconozco 'clientess'.",
+        suggestions=["clientes"],
+    )
+
+    monkeypatch.setattr(app, "st", fake_st)
+    monkeypatch.setattr(app, "_contexto_sesion", lambda: Context())
+    monkeypatch.setattr(app, "ejecutar_consulta", lambda *_args, **_kwargs: error)
+
+    app.main()
+
+    assert fake_st.session_state["error"] == error
+    assert "resultado" not in fake_st.session_state
+    assert "solicitud" not in fake_st.session_state
+    assert fake_st.errors == [error.message]

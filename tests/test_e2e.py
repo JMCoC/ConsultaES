@@ -91,6 +91,13 @@ CAPA3 = "capa3_forced"
 AGG_SIMPLE = "agg_simple"
 LIMIT_SIMPLE = "limit_simple"
 
+def _filas_equivalentes(case: GoldenCase, rows: list[tuple]) -> bool:
+    sin_orden_sqlite = AGG_GROUP in case.categorias and " order by " not in norm(case.sql_esperado)
+    if sin_orden_sqlite:
+        return sorted(rows) == sorted(case.filas_esperadas)
+    return rows == case.filas_esperadas
+
+
 
 CORPUS = [
     GoldenCase(
@@ -549,8 +556,7 @@ def test_golden_corpus_sql_y_filas(case: GoldenCase, rig):
     sql, rows = generate(ast, db=str(DB_PATH), execute=True)
 
     assert norm(sql) == case.sql_esperado
-    assert rows == case.filas_esperadas
-
+    assert _filas_equivalentes(case, rows)
 
 def test_corpus_cubre_categorias_task_6_3():
     assert len(CORPUS) >= 30

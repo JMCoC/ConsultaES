@@ -55,6 +55,21 @@ def test_error_lexico_por_token_no_reconocido_sugiere_vocabulario(rig):
     )
 
 
+def test_error_normaliza_sugerencias_como_tupla_inmutable():
+    sugerencias = ["clientes"]
+
+    err = Error(
+        kind="léxico",
+        pos=0,
+        message="No reconozco 'clientess'.",
+        suggestions=sugerencias,
+    )
+    sugerencias.append("vendedores")
+
+    assert err.suggestions == ("clientes",)
+    assert isinstance(err.suggestions, tuple)
+
+
 @pytest.mark.parametrize(
     "texto, esperado",
     [
@@ -147,10 +162,10 @@ def test_error_ejecucion_sqlite_incluye_sql_y_error_sin_lanzar():
 
     assert isinstance(err, Error)
     assert err.kind == "ejecución"
-    assert err.pos is None
+    assert err.pos == 0
     assert "SELECT * FROM tabla_inexistente" in err.message
     assert "SQLite" in err.message
-    assert err.suggestions == ["SELECT * FROM tabla_inexistente"]
+    assert err.suggestions == ("SELECT * FROM tabla_inexistente",)
 
 
 def test_error_ejecucion_cierra_conexion_sqlite_si_execute_falla(monkeypatch):
