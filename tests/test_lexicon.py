@@ -22,25 +22,37 @@ def test_categorize_binds_entities():
     lex = build_lexicon("data/schema.sql")
     toks = tokenize("cuántos clientes de Cali")
     lattice = categorize(toks, lex)
-    # Flatten to check categories present
     kinds = [item.category for pos in lattice for item in pos]
     assert "INTERROG" in kinds
     assert "N_TABLA" in kinds
     assert "VALOR_CIUDAD" in kinds
 
+def test_categorize_preserves_sql_gap_markers():
+    lex = build_lexicon("data/schema.sql", "data/tienda.db")
+    tokens = tokenize("productos con nombre parecido a 'Mouse'")
+    lattice = categorize(tokens, lex)
+    categories = [item.category for alternatives in lattice for item in alternatives]
+    assert "OP_LIKE" in categories
+
+
+def test_categorize_between_and_negation_markers():
+    lex = build_lexicon("data/schema.sql", "data/tienda.db")
+    tokens = tokenize("pedidos no con total entre 100 y 500")
+    lattice = categorize(tokens, lex)
+    categories = [item.category for alternatives in lattice for item in alternatives]
+    assert "NEG" in categories
+    assert "RANGO" in categories
 
 def test_juan_is_ambiguous():
     lex = build_lexicon("data/schema.sql")
     toks = tokenize("ventas de Juan")
     lattice = categorize(toks, lex)
-    # "Juan" is the last position; it should have >=2 alternatives in a single slot
     juan_pos = lattice[-1]
     juan_items = [i for i in juan_pos if i.lemma.lower() == "juan"]
     assert len(juan_items) >= 2, f"expected ambiguity on Juan, got {juan_items}"
 
 
 def test_categorize_lattice_length_matches_tokens():
-    """Lattice has exactly one position per input token, even for ambiguous tokens."""
     lex = build_lexicon("data/schema.sql")
     toks = tokenize("muéstrame clientes de Juan")
     lattice = categorize(toks, lex)
@@ -55,7 +67,6 @@ def test_categorize_ambiguous_name():
     lattice = categorize(toks, lex)
     # 4 tokens -> 4 positions
     assert len(lattice) == 4
-    # "Juan" is the last position and should have >=2 alternatives (vendedor + cliente)
     juan_alts = lattice[3]
     assert len(juan_alts) >= 2
     assert all(item.category == "VALOR_NOMBRE" for item in juan_alts)

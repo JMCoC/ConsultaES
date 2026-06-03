@@ -47,8 +47,18 @@ _VALUE_COL_CATEGORY = {
     "tipo": "VALOR_TIPO",
 }
 
-_PASSTHROUGH = {"NUM", "CADENA", "FECHA", "OP_COMP", "CONECTOR", "PUNT", "ERROR"}
-
+_PASSTHROUGH = {
+    "NUM",
+    "CADENA",
+    "FECHA",
+    "OP_COMP",
+    "OP_LIKE",
+    "RANGO",
+    "NEG",
+    "CONECTOR",
+    "PUNT",
+    "ERROR",
+}
 
 def levenshtein(a: str, b: str) -> int:
     a = a.lower()

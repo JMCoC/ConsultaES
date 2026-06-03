@@ -1,9 +1,5 @@
 """DFA definiciones para cada token de clase.
 
-
-Each builder returns a DFA object. The tokenizer uses longest_match + priority
-to pick the winning class at each position.
-
 Cada constructor retorna un objeto DFA. El tokenizador utiliza longest_match + priority
 para elegir la clase ganadora en cada posición.
 """
@@ -29,6 +25,17 @@ COMP_PHRASES = [
     "diferente de",
 ]
 
+
+LIKE_PHRASES = [
+    "parecido a",
+    "contiene",
+    "empieza con",
+    "termina con",
+]
+
+RANGO_PHRASES = ["entre"]
+NEG_PHRASES = ["no"]
+
 CONECTORES = ["y", "o", "pero"]
 PUNCT = set(",.;:?¿!¡()")
 
@@ -45,7 +52,6 @@ def _build_trie_dfa(phrases, alphabet_extra=None):
     if alphabet_extra:
         alphabet.update(alphabet_extra)
 
-    # collect all prefixes
     prefixes: set[str] = {""}
     for p in phrases:
         for i in range(1, len(p) + 1):
@@ -270,6 +276,18 @@ def build_op_comp_dfa() -> DFA:
     return _build_trie_dfa(COMP_PHRASES)
 
 
+def build_op_like_dfa() -> DFA:
+    return _build_trie_dfa(LIKE_PHRASES)
+
+
+def build_rango_dfa() -> DFA:
+    return _build_trie_dfa(RANGO_PHRASES)
+
+
+def build_neg_dfa() -> DFA:
+    return _build_trie_dfa(NEG_PHRASES)
+
+
 def build_num_dfa() -> DFA:
     """digits+ ( "." digits+ )?"""
     states = {"q0", "q1", "q2", "q3"}
@@ -324,14 +342,27 @@ def build_punt_dfa() -> DFA:
 
 
 # Orden de prioridad: índice más bajo = mayor prioridad
-PRIORITY = ["CADENA", "FECHA", "OP_COMP", "NUM", "CONECTOR", "PALABRA", "PUNT"]
-
+PRIORITY = [
+    "CADENA",
+    "FECHA",
+    "OP_COMP",
+    "OP_LIKE",
+    "RANGO",
+    "NEG",
+    "NUM",
+    "CONECTOR",
+    "PALABRA",
+    "PUNT",
+]
 
 def build_all() -> list[tuple[str, DFA]]:
     return [
         ("CADENA", build_cadena_dfa()),
         ("FECHA", build_fecha_dfa()),
         ("OP_COMP", build_op_comp_dfa()),
+        ("OP_LIKE", build_op_like_dfa()),
+        ("RANGO", build_rango_dfa()),
+        ("NEG", build_neg_dfa()),
         ("NUM", build_num_dfa()),
         ("CONECTOR", build_conector_dfa()),
         ("PALABRA", build_palabra_dfa()),
