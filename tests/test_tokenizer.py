@@ -26,6 +26,24 @@ def test_comparador_compuesto():
     assert kinds("menor o igual a 5") == ["OP_COMP", "NUM"]
 
 
+def test_like_markers():
+    assert kinds("parecido a 'Mouse'") == ["OP_LIKE", "CADENA"]
+    assert kinds("contiene 'Mouse'") == ["OP_LIKE", "CADENA"]
+    assert kinds("empieza con 'M'") == ["OP_LIKE", "CADENA"]
+    assert kinds("termina con 'a'") == ["OP_LIKE", "CADENA"]
+
+
+def test_between_and_negation_markers():
+    assert kinds("entre 100 y 500") == ["RANGO", "NUM", "CONECTOR", "NUM"]
+    assert kinds("no con total menor que 100") == [
+        "NEG",
+        "PALABRA",
+        "PALABRA",
+        "OP_COMP",
+        "NUM",
+    ]
+
+
 def test_palabra_with_accents():
     assert kinds("cuántos") == ["PALABRA"]
 
