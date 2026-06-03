@@ -176,3 +176,16 @@ def test_execute_against_db():
     )
     sql, rows = generate(ast, db="data/tienda.db", execute=True)
     assert len(rows) > 0
+
+def test_execute_can_return_column_names_from_cursor():
+    ast = SQLAst(
+        select=[Column(None, "*")],
+        tables=["clientes"],
+        limit=1,
+    )
+
+    sql, rows, columns = generate(ast, db="data/tienda.db", execute=True, include_columns=True)
+
+    assert norm(sql) == "select * from clientes limit 1"
+    assert rows
+    assert columns == ["id", "nombre", "ciudad", "fecha_registro", "tipo"]

@@ -37,6 +37,7 @@ def test_ejecutar_consulta_devuelve_arbol_sql_y_filas():
     assert resultado.tree.pretty().startswith("S")
     assert "FROM clientes" in resultado.sql
     assert resultado.rows
+    assert resultado.columns
 
 
 def test_resolver_consulta_con_arbol_registra_eleccion_y_continua_pipeline():
@@ -149,3 +150,45 @@ def test_main_guarda_error_directo_de_consultar_y_limpia_estado(monkeypatch):
     assert "resultado" not in fake_st.session_state
     assert "solicitud" not in fake_st.session_state
     assert fake_st.errors == [error.message]
+
+
+def test_render_resultado_muestra_filas_con_nombres_de_columnas(monkeypatch):
+    class FakeColumn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeStreamlit:
+        def __init__(self):
+            self.dataframes = []
+
+        def columns(self, count):
+            return [FakeColumn() for _ in range(count)]
+
+        def subheader(self, _text):
+            pass
+
+        def text(self, _text):
+            pass
+
+        def code(self, _text, language):
+            pass
+
+        def dataframe(self, data):
+            self.dataframes.append(data)
+
+    fake_st = FakeStreamlit()
+    resultado = app.ResultadoConsulta(
+        tree=ParseTree("S", []),
+        sql="SELECT id, nombre FROM clientes",
+        rows=[(1, "Laura"), (2, "Carlos")],
+        columns=["id", "nombre"],
+    )
+
+    monkeypatch.setattr(app, "st", fake_st)
+
+    app._render_resultado(resultado)
+
+    assert fake_st.dataframes == [[{"id": 1, "nombre": "Laura"}, {"id": 2, "nombre": "Carlos"}]]

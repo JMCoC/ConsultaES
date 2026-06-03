@@ -37,7 +37,7 @@ class ResultadoConsulta:
     tree: ParseTree
     sql: str
     rows: list
-
+    columns: list[str]
 
 def resolver_consulta_con_arbol(
     tree: ParseTree,
@@ -60,11 +60,11 @@ def resolver_consulta_con_arbol(
             message=f"No se pudo finalizar la semántica de la consulta: {exc}",
             suggestions=["Revisa que las tablas y columnas existan en el esquema."],
         )
-    generated = generate_or_error(ast, db=db_path, execute=True)
+    generated = generate_or_error(ast, db=db_path, execute=True, include_columns=True)
     if isinstance(generated, Error):
         return generated
-    sql, rows = generated
-    return ResultadoConsulta(tree=tree, sql=sql, rows=rows)
+    sql, rows, columns = generated
+    return ResultadoConsulta(tree=tree, sql=sql, rows=rows, columns=columns)
 
 
 def ejecutar_consulta(
@@ -111,8 +111,13 @@ def _render_resultado(resultado: ResultadoConsulta) -> None:
         st.code(resultado.sql, language="sql")
     with col_resultados:
         st.subheader("Resultados")
-        st.dataframe(resultado.rows)
+        st.dataframe(_filas_con_columnas(resultado.rows, resultado.columns))
 
+
+def _filas_con_columnas(rows: list, columns: list[str]) -> list[dict] | list:
+    if not columns:
+        return rows
+    return [dict(zip(columns, row)) for row in rows]
 
 def _render_error(error: Error) -> None:
     st.error(error.message)
