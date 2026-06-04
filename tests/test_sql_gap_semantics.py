@@ -6,7 +6,7 @@ from consultaES.grammar import load_grammar
 from consultaES.lexicon import build_lexicon, categorize
 from consultaES.parser import parse
 from consultaES.semantics import SQLAst, interpret
-from consultaES.tokenizer import tokenize
+from consultaES.tokenizer import tokenize   
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = ROOT / "data" / "schema.sql"
@@ -75,3 +75,28 @@ def test_negated_condition(rig):
     assert cond.op == "<"
     assert cond.value == 100000
     assert cond.negated is True
+
+
+def test_having_count_after_group_by(rig):
+    ast = _interpret("cuenta de clientes agrupados por ciudad con cantidad mayor que 3", rig)
+    assert ast.tables == ["clientes"]
+    assert ast.group_by[0].name == "ciudad"
+    assert len(ast.having) == 1
+    _, cond = ast.having[0]
+    assert cond.col.agg == "COUNT"
+    assert cond.col.name == "*"
+    assert cond.op == ">"
+    assert cond.value == 3
+
+
+def test_having_sum_after_group_by(rig):
+    ast = _interpret("suma de total de pedidos agrupados por fecha con suma mayor que 500000", rig)
+    assert ast.tables == ["pedidos"]
+    assert ast.group_by[0].name == "fecha"
+    assert len(ast.having) == 1
+    _, cond = ast.having[0]
+    assert cond.col.agg == "SUM"
+    assert cond.col.table == "pedidos"
+    assert cond.col.name == "total"
+    assert cond.op == ">"
+    assert cond.value == 500000

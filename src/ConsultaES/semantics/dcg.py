@@ -34,6 +34,13 @@ _AGG_MAP: dict[str, str] = {
 }
 
 
+def _agg_column_from_select(ast: SQLAst, agg: str) -> tuple[str | None, str]:
+    for col in ast.select:
+        if col.agg == agg and col.name:
+            return col.table, col.name
+    return None, "*"
+
+
 def _normalize_op(lemma: str) -> str:
     low = lemma.strip().lower()
     if low in _OP_MAP:
@@ -135,10 +142,9 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
 
     # ----- Pregunta -----
     if label == "Pregunta":
-        # Pregunta -> Nucleo | Nucleo Cola
-        nucleo_ast = child_attrs[0] 
+        nucleo_ast = child_attrs[0]
         if len(child_attrs) == 2:
-            cola = child_attrs[1] 
+            cola = child_attrs[1]
             if cola.get("filtros"):
                 filtros = list(cola["filtros"])
                 if nucleo_ast.where and filtros and filtros[0][0] == "":
@@ -154,10 +160,18 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
                 nucleo_ast.order_by = [
                     (Column(table=None, name=orden["columna"]), direction)
                 ]
+            if cola.get("having"):
+                nucleo_ast.having = cola["having"]
+                for _, cond in nucleo_ast.having:
+                    if cond.col.name == "*" and cond.col.agg != "COUNT":
+                        table, name = _agg_column_from_select(nucleo_ast, cond.col.agg)
+                        cond.col.table = table
+                        cond.col.name = name
         return nucleo_ast
 
     # ----- Nucleo -----
     if label == "Nucleo":
+        # Find SN (tabla) and optional Agregacion among children
         agg_attr = None
         sn_attr = None
         valor_attr = None
@@ -214,16 +228,18 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
 
     # ----- Cola -----
     if label == "Cola":
-        result: dict = {}
+        result: dict = {"filtros": [], "having": []}
         for ca in child_attrs:
-            if isinstance(ca, dict):
+            if isinstance(ca, list):
+                result["filtros"].extend(ca)
+            elif isinstance(ca, dict):
                 tipo = ca.get("tipo")
                 if tipo == "agrupacion":
                     result["agrupacion"] = ca
                 elif tipo == "orden":
                     result["orden"] = ca
-            elif isinstance(ca, list):
-                result["filtros"] = ca
+                elif tipo == "having":
+                    result["having"].extend(ca["having"])
         return result
 
     # ----- Interrog / Imperativo -----
@@ -253,12 +269,12 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
 
     # ----- Filtros -----
     if label == "Filtros":
-        filtro_cond = child_attrs[0] 
+        filtro_cond = child_attrs[0]  # Condition
         if len(child_attrs) == 1:
             return [("", filtro_cond)]
         # Filtros -> Filtro CONECTOR Filtros
         conector_attr = child_attrs[1]
-        rest = child_attrs[2]
+        rest = child_attrs[2]  # list of (conector, cond)
         result = [("", filtro_cond)]
         for _, cond in rest:
             result.append((conector_attr["conector"], cond))
@@ -314,6 +330,31 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
         # Agrupacion -> AGR_MARKER PREP N_COLUMNA
         col_attr = child_attrs[2]
         return {"tipo": "agrupacion", "columna": col_attr["columna"]}
+
+    if label == "Having":
+        agg_attr = child_attrs[1]
+        op_attr = child_attrs[2]
+        val_attr = child_attrs[3]
+        value = val_attr.get("valor", val_attr.get("lemma"))
+        agg = agg_attr["agg"]
+        name = "*"
+        if agg != "COUNT":
+            for ca in child_attrs:
+                if isinstance(ca, dict) and ca.get("tipo") == "columna":
+                    name = ca["columna"]
+        return {
+            "tipo": "having",
+            "having": [
+                (
+                    "",
+                    Condition(
+                        col=Column(table=None, name=name, agg=agg),
+                        op=op_attr["op"],
+                        value=value,
+                    ),
+                )
+            ],
+        }
 
     # ----- Orden -----
     if label == "Orden":
