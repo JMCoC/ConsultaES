@@ -59,6 +59,16 @@ def _strip_quotes(s: str) -> str:
     return s
 
 
+def _like_pattern(marker: str, value: object) -> str:
+    text = str(value)
+    low = marker.strip().lower()
+    if low == "empieza con":
+        return f"{text}%"
+    if low == "termina con":
+        return f"%{text}"
+    return f"%{text}%"
+
+
 def _eval_leaf(item: LexicalItem) -> dict:
     cat = item.category
     lemma = item.lemma
@@ -97,6 +107,14 @@ def _eval_leaf(item: LexicalItem) -> dict:
         low = lemma.lower()
         direction = "DESC" if low.startswith("descend") else "ASC"
         return {"tipo": "dir", "dir": direction}
+    if cat == "FECHA":
+        return {"tipo": "fecha", "valor": lemma}
+    if cat == "OP_LIKE":
+        return {"tipo": "op_like", "op": "LIKE", "marker": lemma}
+    if cat == "RANGO":
+        return {"tipo": "rango"}
+    if cat == "NEG":
+        return {"tipo": "neg"}
 
     return {"tipo": cat.lower(), "lemma": lemma}
 
@@ -235,28 +253,51 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
 
     # ----- Filtros -----
     if label == "Filtros":
-        filtro_cond = child_attrs[0]  # Condition
+        filtro_cond = child_attrs[0] 
         if len(child_attrs) == 1:
             return [("", filtro_cond)]
         # Filtros -> Filtro CONECTOR Filtros
         conector_attr = child_attrs[1]
-        rest = child_attrs[2]  # list of (conector, cond)
+        rest = child_attrs[2]
         result = [("", filtro_cond)]
         for _, cond in rest:
             result.append((conector_attr["conector"], cond))
         return result
 
-    # ----- Filtro -> PREP N_COLUMNA OP_COMP Valor -----
     if label == "Filtro":
+        if rhs_labels == ("NEG", "Filtro"):
+            cond = child_attrs[1]
+            cond.negated = True
+            return cond
+
         col_attr = child_attrs[1]
-        op_attr = child_attrs[2]
-        val_attr = child_attrs[3]
-        valor = val_attr.get("valor", val_attr.get("lemma"))
-        return Condition(
-            col=Column(table=None, name=col_attr["columna"]),
-            op=op_attr["op"],
-            value=valor,
-        )
+        col = Column(table=None, name=col_attr["columna"])
+
+        if rhs_labels == ("PREP", "N_COLUMNA", "OP_COMP", "Valor"):
+            op_attr = child_attrs[2]
+            val_attr = child_attrs[3]
+            valor = val_attr.get("valor", val_attr.get("lemma"))
+            return Condition(col=col, op=op_attr["op"], value=valor)
+
+        if rhs_labels == ("PREP", "N_COLUMNA", "OP_LIKE", "Valor"):
+            op_attr = child_attrs[2]
+            val_attr = child_attrs[3]
+            valor = val_attr.get("valor", val_attr.get("lemma"))
+            return Condition(
+                col=col,
+                op="LIKE",
+                value=_like_pattern(op_attr["marker"], valor),
+            )
+
+        if rhs_labels == ("PREP", "N_COLUMNA", "RANGO", "Valor", "CONECTOR", "Valor"):
+            left = child_attrs[3].get("valor", child_attrs[3].get("lemma"))
+            right = child_attrs[5].get("valor", child_attrs[5].get("lemma"))
+            return Condition(col=col, op="BETWEEN", value=(left, right))
+
+        if rhs_labels == ("PREP", "N_COLUMNA", "PREP", "ListaValores"):
+            return Condition(col=col, op="IN", value=child_attrs[3])
+
+        raise ValueError(f"Forma de filtro no soportada: {rhs_labels}")
 
     # ----- Agregacion -----
     if label == "Agregacion":
@@ -287,6 +328,12 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
     # ----- Direccion -----
     if label == "Direccion":
         return child_attrs[0]
+
+    if label == "ListaValores":
+        first = child_attrs[0].get("valor", child_attrs[0].get("lemma"))
+        if len(child_attrs) == 1:
+            return [first]
+        return [first] + child_attrs[2]
 
     # ----- Valor -----
     if label == "Valor":
