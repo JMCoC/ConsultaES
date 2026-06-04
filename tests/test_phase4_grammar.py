@@ -217,11 +217,6 @@ def test_orden_con_filtro(rig):
     assert ast.order_by[0][0].name == "total"
 
 
-# =====================================================================
-# Parse-only smoke tests (queries must parse but semantic details not checked)
-# =====================================================================
-
-
 @pytest.mark.parametrize(
     "q",
     [
