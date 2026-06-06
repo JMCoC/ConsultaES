@@ -76,6 +76,46 @@ def test_negated_condition(rig):
     assert cond.value == 100000
     assert cond.negated is True
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("pedidos en marzo", ("2025-03-01", "2025-03-31")),
+        ("pedidos en marzo de 2025", ("2025-03-01", "2025-03-31")),
+        ("pedidos en febrero de 2024", ("2024-02-01", "2024-02-29")),
+        ("pedidos en 2025", ("2025-01-01", "2025-12-31")),
+        ("pedidos en 15 de abril", ("2025-04-15", "2025-04-15")),
+        ("pedidos en 15 de abril de 2025", ("2025-04-15", "2025-04-15")),
+        ("pedidos en 29 de febrero de 2024", ("2024-02-29", "2024-02-29")),
+    ],
+)
+def test_fecha_filters_on_pedidos(query, expected, rig):
+    ast = _interpret(query, rig)
+    assert ast.tables == ["pedidos"]
+    assert len(ast.where) == 1
+    _, cond = ast.where[0]
+    assert cond.col.table == "pedidos"
+    assert cond.col.name == "fecha"
+    assert cond.op == "BETWEEN"
+    assert cond.value == expected
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "pedidos en 31 de abril de 2025",
+        "pedidos en 0 de abril de 2025",
+        "pedidos en 99 de enero de 2025",
+        "pedidos en 29 de febrero de 2025",
+        "pedidos en 31 de abril",
+        "pedidos en 0 de abril",
+        "pedidos en 99 de enero",
+    ],
+)
+def test_fecha_invalida_no_genera_rango(query, rig):
+    with pytest.raises(ValueError, match="Fecha no soportada"):
+        _interpret(query, rig)
+
+
 
 def test_having_count_after_group_by(rig):
     ast = _interpret("cuenta de clientes agrupados por ciudad con cantidad mayor que 3", rig)
@@ -100,3 +140,19 @@ def test_having_sum_after_group_by(rig):
     assert cond.col.name == "total"
     assert cond.op == ">"
     assert cond.value == 500000
+
+def test_specific_column_projection(rig):
+    ast = _interpret("muéstrame nombre y ciudad de clientes", rig)
+    assert ast.tables == ["clientes"]
+    assert [(col.table, col.name, col.agg) for col in ast.select] == [
+        ("clientes", "nombre", None),
+        ("clientes", "ciudad", None),
+    ]
+
+
+def test_single_specific_column_projection(rig):
+    ast = _interpret("muéstrame nombre de productos", rig)
+    assert ast.tables == ["productos"]
+    assert [(col.table, col.name, col.agg) for col in ast.select] == [
+        ("productos", "nombre", None),
+    ]

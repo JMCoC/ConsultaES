@@ -34,6 +34,43 @@ _AGG_MAP: dict[str, str] = {
 }
 
 
+_MONTHS = {
+    "enero": "01",
+    "febrero": "02",
+    "marzo": "03",
+    "abril": "04",
+    "mayo": "05",
+    "junio": "06",
+    "julio": "07",
+    "agosto": "08",
+    "septiembre": "09",
+    "octubre": "10",
+    "noviembre": "11",
+    "diciembre": "12",
+}
+
+_MONTH_DAYS = {
+    "01": "31",
+    "02": "28",
+    "03": "31",
+    "04": "30",
+    "05": "31",
+    "06": "30",
+    "07": "31",
+    "08": "31",
+    "09": "30",
+    "10": "31",
+    "11": "30",
+    "12": "31",
+}
+
+_TEMPORAL_COLUMNS = {
+    "pedidos": "fecha",
+    "clientes": "fecha_registro",
+    "vendedores": "fecha_ingreso",
+}
+
+
 def _agg_column_from_select(ast: SQLAst, agg: str) -> tuple[str | None, str]:
     for col in ast.select:
         if col.agg == agg and col.name:
@@ -74,6 +111,55 @@ def _like_pattern(marker: str, value: object) -> str:
     if low == "termina con":
         return f"%{text}"
     return f"%{text}%"
+
+
+def _is_leap_year(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _month_days(month: str, year: str) -> int:
+    if month == "02" and _is_leap_year(int(year)):
+        return 29
+    return int(_MONTH_DAYS[month])
+
+
+def _normalize_fecha(texto: str) -> tuple[str, str]:
+    low = texto.strip().lower()
+    if low.isdigit() and len(low) == 4:
+        return f"{low}-01-01", f"{low}-12-31"
+    if low in _MONTHS:
+        month = _MONTHS[low]
+        return f"2025-{month}-01", f"2025-{month}-{_MONTH_DAYS[month]}"
+    parts = low.split()
+    if len(parts) == 3 and parts[1] == "de":
+        if parts[0] in _MONTHS:
+            month = _MONTHS[parts[0]]
+            year = parts[2]
+            if year.isdigit() and len(year) == 4:
+                return f"{year}-{month}-01", f"{year}-{month}-{_month_days(month, year):02d}"
+        if parts[0].isdigit() and parts[2] in _MONTHS:
+            day = int(parts[0])
+            month = _MONTHS[parts[2]]
+            if 1 <= day <= int(_MONTH_DAYS[month]):
+                iso = f"2025-{month}-{day:02d}"
+                return iso, iso
+            raise ValueError(f"Fecha no soportada: {texto}")
+    if len(parts) == 5 and parts[1] == "de" and parts[3] == "de":
+        if parts[0].isdigit() and parts[2] in _MONTHS and parts[4].isdigit():
+            day = int(parts[0])
+            month = _MONTHS[parts[2]]
+            year = parts[4]
+            if len(year) != 4 or day < 1 or day > _month_days(month, year):
+                raise ValueError(f"Fecha no soportada: {texto}")
+            iso = f"{year}-{month}-{day:02d}"
+            return iso, iso
+    raise ValueError(f"Fecha no soportada: {texto}")
+
+
+def _temporal_column_for(tabla: str) -> str:
+    if tabla not in _TEMPORAL_COLUMNS:
+        raise ValueError(f"La tabla {tabla} no tiene columna temporal canónica")
+    return _TEMPORAL_COLUMNS[tabla]
 
 
 def _eval_leaf(item: LexicalItem) -> dict:
@@ -175,6 +261,7 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
         agg_attr = None
         sn_attr = None
         valor_attr = None
+        proyeccion_attr = None
 
         for ca in child_attrs:
             if isinstance(ca, dict):
@@ -183,8 +270,10 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
                     agg_attr = ca
                 elif tipo == "tabla":
                     sn_attr = ca
-                elif tipo == "valor":
+                elif tipo in ("valor", "fecha"):
                     valor_attr = ca
+                elif tipo == "proyeccion":
+                    proyeccion_attr = ca
                 elif tipo in ("modo", "prep", "det"):
                     pass
 
@@ -201,24 +290,42 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
             else:
                 select = [Column(table=tabla, name="*", agg=agg_func)]
         else:
-            select = [Column(table=tabla, name="*")]
-
+            if proyeccion_attr:
+                select = [
+                    Column(table=tabla, name=columna)
+                    for columna in proyeccion_attr["columnas"]
+                ]
+            else:
+                select = [Column(table=tabla, name="*")]
         ast = SQLAst(select=select, tables=[tabla])
 
         if rhs_labels == ("SN", "PREP", "Valor") and valor_attr:
-            bindings = valor_attr.get("bindings") or []
-            if bindings:
-                table, column = bindings[0]
+            if valor_attr.get("tipo") == "fecha":
+                lo, hi = _normalize_fecha(valor_attr["valor"])
                 ast.where = [
                     (
                         "",
                         Condition(
-                            col=Column(table=table, name=column),
-                            op="=",
-                            value=valor_attr.get("valor"),
+                            col=Column(table=tabla, name=_temporal_column_for(tabla)),
+                            op="BETWEEN",
+                            value=(lo, hi),
                         ),
                     )
                 ]
+            else:
+                bindings = valor_attr.get("bindings") or []
+                if bindings:
+                    table, column = bindings[0]
+                    ast.where = [
+                        (
+                            "",
+                            Condition(
+                                col=Column(table=table, name=column),
+                                op="=",
+                                value=valor_attr.get("valor"),
+                            ),
+                        )
+                    ]
 
         # LIMIT from SN
         if sn_attr.get("limit") is not None:
@@ -314,6 +421,11 @@ def _eval_node(label: str, child_attrs: list[dict], children) -> dict | SQLAst:
             return Condition(col=col, op="IN", value=child_attrs[3])
 
         raise ValueError(f"Forma de filtro no soportada: {rhs_labels}")
+    if label == "Proyeccion":
+        first = child_attrs[0]["columna"]
+        if len(child_attrs) == 1:
+            return {"tipo": "proyeccion", "columnas": [first]}
+        return {"tipo": "proyeccion", "columnas": [first] + child_attrs[2]["columnas"]}
 
     # ----- Agregacion -----
     if label == "Agregacion":
